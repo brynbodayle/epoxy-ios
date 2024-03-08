@@ -43,27 +43,6 @@ extension MeasuringViewRepresentable {
 
 #if os(iOS) || os(tvOS)
 extension MeasuringViewRepresentable {
-  public func _overrideSizeThatFits(
-    _ size: inout CGSize,
-    in proposedSize: _ProposedSize,
-    uiView: UIViewType)
-  {
-    uiView.strategy = sizing
-
-    // Note: this method is not double-called on iOS 16, so we don't need to do anything to prevent
-    // extra work here.
-    let children = Mirror(reflecting: proposedSize).children
-
-    // Creates a `CGSize` by replacing `nil`s with `UIView.noIntrinsicMetric`
-    uiView.proposedSize = .init(
-      width: (
-        children.first { $0.label == "width" }?
-          .value as? CGFloat ?? ViewType.noIntrinsicMetric).constraintSafeValue,
-      height: (
-        children.first { $0.label == "height" }?
-          .value as? CGFloat ?? ViewType.noIntrinsicMetric).constraintSafeValue)
-    size = uiView.measuredFittingSize
-  }
 
   #if swift(>=5.7.1) // Proxy check for being built with the iOS 15 SDK
   @available(iOS 16.0, tvOS 16.0, macOS 13.0, *)
@@ -73,9 +52,34 @@ extension MeasuringViewRepresentable {
     context _: Context)
     -> CGSize?
   {
-    uiView.strategy = sizing
-    uiView.proposedSize = proposal.viewTypeValue
-    return uiView.measuredFittingSize
+    switch sizing {
+    case .intrinsic:
+      return uiView.systemLayoutSizeFitting(
+        UIView.layoutFittingCompressedSize,
+        withHorizontalFittingPriority: .fittingSizeLevel,
+        verticalFittingPriority: .fittingSizeLevel)
+    case .automatic, .intrinsicHeightProposedOrIntrinsicWidth, .intrinsicHeightProposedWidth, .intrinsicWidthProposedHeight:
+      uiView.translatesAutoresizingMaskIntoConstraints = false
+      let widthConstraint2 = uiView.widthAnchor.constraint(equalToConstant: proposal.width ?? 0)
+      widthConstraint2.isActive = true
+      uiView.layoutIfNeeded()
+
+      widthConstraint2.isActive = false
+
+      let widthConstraint = uiView.widthAnchor.constraint(lessThanOrEqualToConstant: proposal.width ?? 0)
+      widthConstraint.isActive = true
+      uiView.layoutIfNeeded()
+
+      let size = uiView.systemLayoutSizeFitting(
+        UIView.layoutFittingExpandedSize,
+        withHorizontalFittingPriority: .fittingSizeLevel,
+        verticalFittingPriority: .fittingSizeLevel)
+      widthConstraint.isActive = false
+
+      return size
+    case .proposed:
+      return proposal.replacingUnspecifiedDimensions()
+    }
   }
   #endif
 }
